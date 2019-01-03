@@ -16,6 +16,12 @@ def split(x):
     x2 = x[:, n:, :, :].contiguous()
     return x1, x2
 
+def split_neq(x):
+    n = int(x.size()[1]/5)
+    x1 = x[:, :n, :, :].contiguous()
+    x2 = x[:, n:, :, :].contiguous()
+    return x1, x2
+
 
 def merge(x1, x2):
     return torch.cat((x1, x2), 1)

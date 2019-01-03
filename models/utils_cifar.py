@@ -47,6 +47,7 @@ import math
 import numpy as np
 
 criterion = nn.CrossEntropyLoss()
+criterion_self = nn.MSELoss()
 
 mean = {
     'cifar10': (0.4914, 0.4822, 0.4465),
@@ -97,13 +98,21 @@ def train(model, trainloader, trainset, epoch, num_epochs, batch_size, lr, use_c
             inputs, targets = inputs.cuda(), targets.cuda()  # GPU settings
         optimizer.zero_grad()
         inputs, targets = Variable(inputs), Variable(targets)
-        out, out_bij = model(inputs)               # Forward Propagation
-        loss = criterion(out, targets)  # Loss
+        out0, out1, out_bij = model(inputs)               # Forward Propagation
+
+        loss0 = criterion(out0, targets)  # Loss
+        loss1 = criterion(out1, targets)
+        self_loss = criterion_self(out0,out1)
+
+        # print(self_loss*0.001)
+
+        loss = loss0 + loss1 + self_loss*0.001
+
         loss.backward()  # Backward Propagation
         optimizer.step()  # Optimizer update
 
         train_loss += loss.data[0]
-        _, predicted = torch.max(out.data, 1)
+        _, predicted = torch.max(out0.data, 1)
         total += targets.size(0)
         correct += predicted.eq(targets.data).cpu().sum()
 
@@ -117,23 +126,39 @@ def train(model, trainloader, trainset, epoch, num_epochs, batch_size, lr, use_c
 def test(model, testloader, testset, epoch, use_cuda, best_acc, dataset, fname):
     model.eval()
     test_loss = 0
+    correct0 = 0
+    correct1 = 0
     correct = 0
     total = 0
     for batch_idx, (inputs, targets) in enumerate(testloader):
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
         inputs, targets = Variable(inputs, volatile=True), Variable(targets)
-        out, out_bij = model(inputs)
-        loss = criterion(out, targets)
+        out0, out1, out_bij = model(inputs)
+        loss0 = criterion(out0, targets)  # Loss
+        loss1 = criterion(out1, targets)
+
+        # self_loss = criterion_self(out0,out1)
+        # print("self_loss: ", self_loss)
+
+        loss = loss0 + loss1
+
+        out_mean = out0*0.5 + out1*0.5
 
         test_loss += loss.data[0]
-        _, predicted = torch.max(out.data, 1)
+        _, predicted = torch.max(out_mean.data, 1)
+        _, predicted0 = torch.max(out0.data, 1)
+        _, predicted1 = torch.max(out1.data, 1)
         total += targets.size(0)
         correct += predicted.eq(targets.data).cpu().sum()
+        correct0 += predicted0.eq(targets.data).cpu().sum()
+        correct1 += predicted1.eq(targets.data).cpu().sum()
 
     # Save checkpoint when best model
     acc = 100.*correct/total
-    print("\n| Validation Epoch #%d\t\t\tLoss: %.4f Acc@1: %.2f%%" %(epoch, loss.data[0], acc))
+    acc0 = 100.*correct0/total
+    acc1 = 100.*correct1/total
+    print("\n| Validation Epoch #%d\t\t\tLoss: %.4f Acc@1: %.2f%%  Acc0@1: %.2f%%  Acc1@1: %.2f%%" %(epoch, loss.data[0], acc, acc0, acc1))
 
     if acc > best_acc:
         print('| Saving Best model...\t\t\tTop1 = %.2f%%' % (acc))
