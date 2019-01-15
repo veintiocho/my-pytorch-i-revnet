@@ -47,7 +47,7 @@ import sys
 import time
 import argparse
 
-from models.utils_cifar import train, test, std, mean, get_hms
+from models.utils_cifar import train, test, std, mean, get_hms, extract_feat
 from models.iRevNet import iRevNet
 
 
@@ -65,6 +65,8 @@ parser.add_argument('--resume', default='', type=str, metavar='PATH',
                     help='path to latest checkpoint (default: none)')
 parser.add_argument('-e', '--evaluate', dest='evaluate', action='store_true',
                     help='evaluate model on validation set')
+parser.add_argument('-f', '--extract_feature', dest='extract_feat', action='store_true',
+                    help='extract features of the data')
 parser.add_argument('--dataset', default='cifar10', type=str, help='dataset')
 
 
@@ -134,6 +136,10 @@ def main():
 
     if args.evaluate:
         test(model, testloader, testset, start_epoch, use_cuda, best_acc, args.dataset, fname)
+        return
+
+    if args.extract_feat:
+        extract_feat(model, trainloader, testloader, "2heads_iRevNet_feat")
         return
 
     print('|  Train Epochs: ' + str(args.epochs))

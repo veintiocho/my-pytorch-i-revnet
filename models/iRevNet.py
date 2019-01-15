@@ -188,17 +188,22 @@ class iRevNet(nn.Module):
         # print("n: ",n)
         out = (x[:, :n, :, :], x[:, n:, :, :])
         # print("out[0]: ",out[0].shape, "out[1]: ",out[1].shape)
+        idx = 0
         for block in self.stack:
             out = block.forward(out)
+            if(idx==17):
+                out_32x32_0 = out[0]
+                out_32x32_1 = out[1]
+            idx += 1
             # print("out[0]: ",out[0].shape, "out[1]: ",out[1].shape)
-        out_bij = merge(out[0], out[1])
+        # out_bij = merge(out[0], out[1])
         out0 = self.head_block0(out[0])
         out1 = self.head_block1(out[1])
         # out = F.relu(self.bn1(out_bij))
         # out = F.avg_pool2d(out, self.ds)
         # out = out.view(out.size(0), -1)
         # out = self.linear(out)
-        return out0, out1, out_bij
+        return out0, out1, out_32x32_0, out_32x32_1
 
     def inverse(self, out_bij):
         """ irevnet inverse """

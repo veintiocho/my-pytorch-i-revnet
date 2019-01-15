@@ -98,7 +98,7 @@ def train(model, trainloader, trainset, epoch, num_epochs, batch_size, lr, use_c
             inputs, targets = inputs.cuda(), targets.cuda()  # GPU settings
         optimizer.zero_grad()
         inputs, targets = Variable(inputs), Variable(targets)
-        out0, out1, out_bij = model(inputs)               # Forward Propagation
+        out0, out1, _, _ = model(inputs)               # Forward Propagation
 
         loss0 = criterion(out0, targets)  # Loss
         loss1 = criterion(out1, targets)
@@ -134,7 +134,7 @@ def test(model, testloader, testset, epoch, use_cuda, best_acc, dataset, fname):
         if use_cuda:
             inputs, targets = inputs.cuda(), targets.cuda()
         inputs, targets = Variable(inputs, volatile=True), Variable(targets)
-        out0, out1, out_bij = model(inputs)
+        out0, out1, _, _ = model(inputs)
         loss0 = criterion(out0, targets)  # Loss
         loss1 = criterion(out1, targets)
 
@@ -155,9 +155,9 @@ def test(model, testloader, testset, epoch, use_cuda, best_acc, dataset, fname):
         correct1 += predicted1.eq(targets.data).cpu().sum()
 
     # Save checkpoint when best model
-    acc = 100.*correct/total
-    acc0 = 100.*correct0/total
-    acc1 = 100.*correct1/total
+    acc = 100.*float(correct)/float(total)
+    acc0 = 100.*float(correct0)/float(total)
+    acc1 = 100.*float(correct1)/float(total)
     print("\n| Validation Epoch #%d\t\t\tLoss: %.4f Acc@1: %.2f%%  Acc0@1: %.2f%%  Acc1@1: %.2f%%" %(epoch, loss.data[0], acc, acc0, acc1))
 
     if acc > best_acc:
@@ -175,3 +175,97 @@ def test(model, testloader, testset, epoch, use_cuda, best_acc, dataset, fname):
         torch.save(state, save_point+fname+'.t7')
         best_acc = acc
     return best_acc
+
+def extract_feat(model, trainloader, testloader, save_name):
+    model.eval()
+    number = 0
+    for idx, (input, target) in enumerate(trainloader):
+        input_var = torch.autograd.Variable(input, volatile=True).cuda()
+
+        # compute output
+        _, _, output_32x32_0, output_32x32_1 = model(input_var)
+        # print("output shape: ", output.shape)
+        # print("output_32x32 shape: ", output_32x32.shape)
+        # print("out_bij shape: ", out_bij.shape)
+
+        output_32x32_0_cpu = output_32x32_0.cpu().detach().numpy()
+        output_32x32_1_cpu = output_32x32_1.cpu().detach().numpy()
+
+        target_cpu = target.cpu().detach().numpy()
+
+        batch_size = output_32x32_0_cpu.shape[0]
+        # print(batch_size)
+        for i in range(batch_size):
+            feat0 = output_32x32_0_cpu[i,:,:,:]
+            feat1 = output_32x32_1_cpu[i,:,:,:]
+            
+            label = target_cpu[i]
+
+            save_folder_0 = 'data/' + save_name + '_0'
+            save_folder_1 = 'data/' + save_name + '_1'
+            if(os.path.exists(save_folder_0)==False):
+                os.mkdir(save_folder_0)
+            if(os.path.exists(save_folder_1)==False):
+                os.mkdir(save_folder_1)
+
+            save_path_0 = save_folder_0 + '/' + str(label) + '/'
+            save_path_1 = save_folder_1 + '/' + str(label) + '/'        
+            if(os.path.exists(save_path_0)==False):
+                os.mkdir(save_path_0)
+            if(os.path.exists(save_path_1)==False):
+                os.mkdir(save_path_1)
+
+            np.save(save_path_0 + str(number) + '.npy',feat0)
+            np.save(save_path_1 + str(number) + '.npy',feat1)
+
+            number+=1
+        
+        sys.stdout.write('\r')
+        sys.stdout.write('| Iter %3d' % (idx+1))
+        sys.stdout.flush()
+
+
+    number = 0
+    for idx, (input, target) in enumerate(testloader):
+        input_var = torch.autograd.Variable(input, volatile=True).cuda()
+
+        # compute output
+        _, _, output_32x32_0, output_32x32_1 = model(input_var)
+        # print("output shape: ", output.shape)
+        # print("output_32x32 shape: ", output_32x32.shape)
+        # print("out_bij shape: ", out_bij.shape)
+
+        output_32x32_0_cpu = output_32x32_0.cpu().detach().numpy()
+        output_32x32_1_cpu = output_32x32_1.cpu().detach().numpy()
+
+        target_cpu = target.cpu().detach().numpy()
+
+        batch_size = output_32x32_0_cpu.shape[0]
+        # print(batch_size)
+        for i in range(batch_size):
+            feat0 = output_32x32_0_cpu[i,:,:,:]
+            feat1 = output_32x32_1_cpu[i,:,:,:]
+            
+            label = target_cpu[i]
+
+            save_folder_0 = 'data/' + save_name + '_0_val'
+            save_folder_1 = 'data/' + save_name + '_1_val'
+            if(os.path.exists(save_folder_0)==False):
+                os.mkdir(save_folder_0)
+            if(os.path.exists(save_folder_1)==False):
+                os.mkdir(save_folder_1)
+
+            save_path_0 = save_folder_0 + '/' + str(label) + '/'
+            save_path_1 = save_folder_1 + '/' + str(label) + '/'        
+            if(os.path.exists(save_path_0)==False):
+                os.mkdir(save_path_0)
+            if(os.path.exists(save_path_1)==False):
+                os.mkdir(save_path_1)
+
+            np.save(save_path_0 + str(number) + '.npy',feat0)
+            np.save(save_path_1 + str(number) + '.npy',feat1)
+
+            number+=1
+        sys.stdout.write('\r')
+        sys.stdout.write('| Iter %3d' % (idx+1))
+        sys.stdout.flush()
