@@ -1,6 +1,8 @@
 data/*
 __pycache__/*
 models/__pycache__/*
+*.jpg
+*.t7
 *.tar
 *.tar
 *.pyc

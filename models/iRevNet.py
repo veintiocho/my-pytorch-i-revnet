@@ -12,6 +12,52 @@ import torch.nn.functional as F
 from torch.autograd import Variable
 from .model_utils import split, merge, injective_pad, psi
 
+class SEBlock(nn.Module):
+    def __init__(self, in_planes, planes, stride=1):
+        super(SEBlock, self).__init__()
+        self.bn1 = nn.BatchNorm2d(in_planes)
+        self.conv1 = nn.Conv2d(in_planes, planes, kernel_size=3, stride=stride, padding=1, bias=False)
+        self.bn2 = nn.BatchNorm2d(planes)
+        self.conv2 = nn.Conv2d(planes, planes, kernel_size=3, stride=1, padding=1, bias=False)
+
+        if stride != 1 or in_planes != planes:
+            self.shortcut = nn.Sequential(
+                nn.Conv2d(in_planes, planes, kernel_size=1, stride=stride, bias=False)
+            )
+
+        # SE layers
+        self.fc1 = nn.Conv2d(planes, planes//16, kernel_size=1)
+        self.fc2 = nn.Conv2d(planes//16, planes, kernel_size=1)
+
+    def forward(self, x):
+        x = merge(x[0], x[1])
+
+        out = F.relu(self.bn1(x))
+
+        out = self.conv1(out)
+        out = self.conv2(F.relu(self.bn2(out)))
+
+        # Squeeze
+        w = F.avg_pool2d(out, out.size(2))
+        # print("w shale: ",w.shape)
+        w = F.relu(self.fc1(w))
+        w = F.sigmoid(self.fc2(w))
+
+        w_sort,w1 = w.sort(1,descending=True)
+
+        clip_val = w_sort[:,int(w_sort.shape[1]*0.8),:,:]
+        clip_val = clip_val.unsqueeze(dim=-1)
+
+        w_mask_gt = (w_sort>clip_val)
+        w_relu = w_sort.mul(w_mask_gt.float())
+
+        # Excitation
+        out = x * w_relu
+
+        x1, x2 = split(out)
+
+        return (x1, x2)
+
 class head_block(nn.Module):
     def __init__(self, nClasses, ds, channels):
         """ buid head block """
@@ -87,23 +133,15 @@ class irevnet_block(nn.Module):
     def forward(self, x):
         """ bijective or injective block forward """
         if self.pad != 0 and self.stride == 1:
-            # print("get into bijective or injective block forward")
-            # print("x[0]: ",x[0].shape,"x[1]: ",x[1].shape)
             x = merge(x[0], x[1])
             # print("x before inj_pad: ",x.shape)
             x = self.inj_pad.forward(x)
-            # print("x after inj_pad: ",x.shape)
+
             x1, x2 = split(x)
             x = (x1, x2)
-            # print("x[0]: ",x[0].shape,"x[1]: ",x[1].shape)
-            # print("x1 sum: ",x1.sum())
-            # print("x2 sum: ",x2.sum())
         
         x1 = x[0]
         x2 = x[1]
-
-        # print("x1 sum: ",x1.sum())
-        # print("x2 sum: ",x2.sum())
 
         Fx2 = self.bottleneck_block(x2)
         if self.stride == 2:
@@ -148,16 +186,19 @@ class iRevNet(nn.Module):
                          self.in_ch//2 * 4**2, self.in_ch//2 * 4**3]
         
         self.init_psi = psi(self.init_ds)
-        # print("self.in_ch: ",self.in_ch)
+
         self.stack = self.irevnet_stack(irevnet_block, nChannels, nBlocks,
                                         nStrides, dropout_rate=dropout_rate,
                                         affineBN=affineBN, in_ch=self.in_ch,
                                         mult=mult)
+        
+        self.bn1 = nn.BatchNorm2d(nChannels[-1]*2, momentum=0.9)
+        self.linear = nn.Linear(nChannels[-1]*2, nClasses)
 
-        self.head_block0 = head_block(nClasses,self.ds,nChannels[-1]*2)
-        self.head_block1 = head_block(nClasses,self.ds,nChannels[-1]*2)
-        # self.bn1 = nn.BatchNorm2d(nChannels[-1]*2, momentum=0.9)
-        # self.linear = nn.Linear(nChannels[-1]*2, nClasses)
+        self.se_block = SEBlock(32,32)
+
+        # self.head_block0 = head_block(nClasses,self.ds,nChannels[-1]*2)
+        # self.head_block1 = head_block(nClasses,self.ds,nChannels[-1]*2)
         
 
     def irevnet_stack(self, _block, nChannels, nBlocks, nStrides, dropout_rate,
@@ -170,7 +211,6 @@ class iRevNet(nn.Module):
             strides = strides + ([stride] + [1]*(depth-1))
             channels = channels + ([channel]*depth)
         for channel, stride in zip(channels, strides):
-            # print("in_ch: ",in_ch," channel: ",channel)
             block_list.append(_block(in_ch, channel, stride,
                                      first=self.first,
                                      dropout_rate=dropout_rate,
@@ -185,25 +225,24 @@ class iRevNet(nn.Module):
         if self.init_ds != 0:
             x = self.init_psi.forward(x)
 
-        # print("n: ",n)
         out = (x[:, :n, :, :], x[:, n:, :, :])
-        # print("out[0]: ",out[0].shape, "out[1]: ",out[1].shape)
+
         idx = 0
         for block in self.stack:
             out = block.forward(out)
             if(idx==17):
-                out_32x32_0 = out[0]
-                out_32x32_1 = out[1]
+                out = self.se_block(out)
+                out_32x32 = merge(out[0], out[1])
+
             idx += 1
-            # print("out[0]: ",out[0].shape, "out[1]: ",out[1].shape)
-        # out_bij = merge(out[0], out[1])
-        out0 = self.head_block0(out[0])
-        out1 = self.head_block1(out[1])
-        # out = F.relu(self.bn1(out_bij))
-        # out = F.avg_pool2d(out, self.ds)
-        # out = out.view(out.size(0), -1)
-        # out = self.linear(out)
-        return out0, out1, out_32x32_0, out_32x32_1
+
+        out_bij = merge(out[0], out[1])
+
+        out = F.relu(self.bn1(out_bij))
+        out = F.avg_pool2d(out, self.ds)
+        out = out.view(out.size(0), -1)
+        out = self.linear(out)
+        return out, out_32x32
 
     def inverse(self, out_bij):
         """ irevnet inverse """
