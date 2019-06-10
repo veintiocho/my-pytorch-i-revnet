@@ -1,0 +1,33 @@
+# logger options
+exp_name: 'exp_origin_resnet'
+#description:
+#   1. with two layer content loss
+#   2. normalized content loss
+#   3. update encoder lightly
+#   4. modify the coeffcient of losses
+#   5. with cycle_recon
+#
+#
+# load options
+is_resume: False
+pretrained_ckpt: ''
+
+classCount: 10
+guide_net: 'ResNet50'
+# optimization options
+max_epoch: 200              # maximum number of training iterations
+batch_size: 64                 # batch size
+weight_decay: 0.0001          # weight decay
+beta1: 0.5                    # Adam parameter
+beta2: 0.999                  # Adam parameter
+init: kaiming                 # initialization [gaussian/kaiming/xavier/orthogonal]
+lr: 0.1                    # initial learning rate
+
+# data options
+input_dim_c: 3                              # number of image channels [1/3]
+n_threads: 8                                # number of data loading threads
+new_size: 256                               # first resize the shortest image side to this size
+crop_image_height: 256                      # random crop image of this height
+crop_image_width: 256                       # random crop image of this width
+content_dir: '../Datasets/ContentImages/'
+style_dir: '../Datasets/MangaImages/'
